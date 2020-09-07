@@ -31,6 +31,7 @@ namespace TwitchLeecher.Gui.ViewModels
 
         private ICommand _viewCommand;
         private ICommand _downloadCommand;
+        private ICommand _downloadAllCommand;
         private ICommand _seachCommand;
 
         #endregion Fields
@@ -112,6 +113,19 @@ namespace TwitchLeecher.Gui.ViewModels
             }
         }
 
+        public ICommand DownloadAllCommand
+        {
+            get
+            {
+                if (_downloadAllCommand == null)
+                {
+                    _downloadAllCommand = new DelegateCommand(DownloadAll);
+                }
+
+                return _downloadAllCommand;
+            }
+        }
+
         #endregion Properties
 
         #region Methods
@@ -158,6 +172,59 @@ namespace TwitchLeecher.Gui.ViewModels
             {
                 _dialogService.ShowAndLogException(ex);
             }
+        }
+
+        private void DownloadAll()
+        {
+            try
+            {
+                foreach (var video in _twitchService.Videos)
+                {
+                    lock (_commandLockObject)
+                    {
+                        if (video != null)
+                        {
+                            VodAuthInfo vodAuthInfo = _twitchService.RetrieveVodAuthInfo(video.Id);
+
+                            if (!vodAuthInfo.Privileged && vodAuthInfo.SubOnly)
+                            {
+                                _dialogService.ShowMessageBox("This video is sub-only! Twitch removed the ability for 3rd party software to download such videos, sorry :(", "SUB HYPE!", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+
+                                return;
+                            }
+
+                            Preferences currentPrefs = _preferencesService.CurrentPreferences.Clone();
+
+                            string folder = currentPrefs.DownloadSubfoldersForFav && _preferencesService.IsChannelInFavourites(video.Channel)
+                                ? Path.Combine(currentPrefs.DownloadFolder, video.Channel)
+                                : currentPrefs.DownloadFolder;
+
+                            string filename = _filenameService.SubstituteWildcards(currentPrefs.DownloadFileName, video);
+                            filename = _filenameService.EnsureExtension(filename, currentPrefs.DownloadDisableConversion);
+
+                            DownloadParameters downloadParams = new DownloadParameters(video, vodAuthInfo, video.Qualities.First(), folder, filename, currentPrefs.DownloadDisableConversion);
+
+                            if (File.Exists(downloadParams.FullPath))
+                            {
+                                MessageBoxResult result = _dialogService.ShowMessageBox($"The file: {Environment.NewLine}{downloadParams.FullPath}{Environment.NewLine} already exists. Do you want to overwrite it?", "Download", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+                                if (result != MessageBoxResult.Yes)
+                                {
+                                    continue;
+                                }
+                            }
+
+                            _twitchService.Enqueue(downloadParams);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _dialogService.ShowAndLogException(ex);
+            }
+
+            _notificationsService.ShowNotification($"{_twitchService.Videos.Count} Downloads added");
         }
 
         private void DownloadVideo(string id)
@@ -228,6 +295,7 @@ namespace TwitchLeecher.Gui.ViewModels
             }
 
             menuCommands.Add(new MenuCommand(SeachCommnad, "New Search", "Search"));
+            menuCommands.Add(new MenuCommand(DownloadAllCommand, "Download All", "Download"));
 
             return menuCommands;
         }
