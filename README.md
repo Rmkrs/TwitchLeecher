@@ -12,7 +12,7 @@ Yes! Just because there are no commits for a longer period of time, does not mea
 - Requires .NET Framework 4.8
 - Requires Windows 7 SP1 64 Bit or higher
 
-The Installer is available [HERE](https://github.com/Franiac/TwitchLeecher/releases)
+The Installer is available [HERE](https://github.com/Rmkrs/TwitchLeecher/releases)
 
 Once installed, future releases will automatically update current installations with a single click!
 
