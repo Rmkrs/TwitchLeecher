@@ -176,8 +176,15 @@ namespace TwitchLeecher.Gui.ViewModels
 
         private void DownloadAll()
         {
+            var addedCount = 0;
+            var skippedCount = 0;
+            var overwrittenCount = 0;
+
             try
             {
+                var existingCount = 0;
+                bool overrideAllExisting = false;
+                bool skipAllExisting = false;
                 foreach (var video in _twitchService.Videos)
                 {
                     lock (_commandLockObject)
@@ -188,9 +195,9 @@ namespace TwitchLeecher.Gui.ViewModels
 
                             if (!vodAuthInfo.Privileged && vodAuthInfo.SubOnly)
                             {
-                                _dialogService.ShowMessageBox("This video is sub-only! Twitch removed the ability for 3rd party software to download such videos, sorry :(", "SUB HYPE!", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                                _dialogService.ShowMessageBox($"This video ({video.Title}) is sub-only! Twitch removed the ability for 3rd party software to download such videos, sorry :(", "SUB HYPE!", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 
-                                return;
+                                continue;
                             }
 
                             Preferences currentPrefs = _preferencesService.CurrentPreferences.Clone();
@@ -206,14 +213,67 @@ namespace TwitchLeecher.Gui.ViewModels
 
                             if (File.Exists(downloadParams.FullPath))
                             {
-                                MessageBoxResult result = _dialogService.ShowMessageBox($"The file: {Environment.NewLine}{downloadParams.FullPath}{Environment.NewLine} already exists. Do you want to overwrite it?", "Download", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                                existingCount++;
 
-                                if (result != MessageBoxResult.Yes)
+                                if (existingCount == 2)
                                 {
+                                    var messageMultiple = $"It seems there are multiple files that already exist.{Environment.NewLine}{Environment.NewLine}Press Cancel if you want to get a question for each existing file.{Environment.NewLine}{Environment.NewLine}Press Yes if you want to override all existing files.{Environment.NewLine}{Environment.NewLine}Press No if you want to skip all existing files";
+                                    var resultMultiple = _dialogService.ShowMessageBox(messageMultiple, "Download", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+                                    switch (resultMultiple)
+                                    {
+                                        case MessageBoxResult.None:
+                                        case MessageBoxResult.OK:
+                                            break;
+                                        case MessageBoxResult.Yes:
+                                            overrideAllExisting = true;
+                                            break;
+                                        case MessageBoxResult.Cancel:
+                                            break;
+                                        case MessageBoxResult.No:
+                                            skipAllExisting = true;
+                                            break;
+                                        default:
+                                            throw new ArgumentOutOfRangeException();
+                                    }
+                                }
+
+                                if (skipAllExisting)
+                                {
+                                    skippedCount++;
                                     continue;
+                                }
+
+                                if (overrideAllExisting)
+                                {
+                                    overwrittenCount++;
+                                    addedCount++;
+                                    _twitchService.Enqueue(downloadParams);
+                                    continue;
+                                }
+
+                                var message = $"The file: {Environment.NewLine}{downloadParams.FullPath}{Environment.NewLine} already exists. Do you want to overwrite it?{Environment.NewLine}{Environment.NewLine}If you press Cancel the rest of the downloads will not be added.";
+                                var result = _dialogService.ShowMessageBox(message, "Download", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+
+                                switch (result)
+                                {
+                                    case MessageBoxResult.None:
+                                    case MessageBoxResult.OK:
+                                    case MessageBoxResult.Yes:
+                                        overwrittenCount++;
+                                        break;
+                                    case MessageBoxResult.Cancel:
+                                        this.ShowMultiDownloadNotification(addedCount, skippedCount, overwrittenCount);
+                                        return;
+                                    case MessageBoxResult.No:
+                                        skippedCount++;
+                                        continue;
+                                    default:
+                                        throw new ArgumentOutOfRangeException();
                                 }
                             }
 
+                            addedCount++;
                             _twitchService.Enqueue(downloadParams);
                         }
                     }
@@ -224,7 +284,23 @@ namespace TwitchLeecher.Gui.ViewModels
                 _dialogService.ShowAndLogException(ex);
             }
 
-            _notificationsService.ShowNotification($"{_twitchService.Videos.Count} Downloads added");
+            this.ShowMultiDownloadNotification(addedCount, skippedCount, overwrittenCount);
+        }
+
+        private void ShowMultiDownloadNotification(int addedCount, int skippedCount, int overwrittenCount)
+        {
+            string message = $"{addedCount} Downloads added";
+            if (skippedCount > 0)
+            {
+                message += $", {skippedCount} existing files have been skipped";
+            }
+
+            if (overwrittenCount > 0)
+            {
+                message += $", {overwrittenCount} existing files have been overwritten";
+            }
+
+            _notificationsService.ShowNotification(message);
         }
 
         private void DownloadVideo(string id)
